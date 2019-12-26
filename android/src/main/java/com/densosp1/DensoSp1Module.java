@@ -26,6 +26,33 @@ public class DensoSp1Module extends ReactContextBaseJavaModule implements Lifecy
 		}
 	}
 
+	@Override
+	public String getName() {
+		return "DensoSp1";
+	}
+
+	@Override
+	public void onHostResume() {
+		if (scannerThread != null) {
+			scannerThread.onHostResume();
+		}
+	}
+
+	@Override
+	public void onHostPause() {
+		if (scannerThread != null) {
+			scannerThread.onHostPause();
+		}
+	}
+
+	@Override
+	public void onHostDestroy() {
+		if (scannerThread != null) {
+			scannerThread.onHostDestroy();
+		}
+	}
+
+	@ReactMethod
 	private void InitialThread() {
 		try {
 			if (scannerThread != null) {
@@ -62,32 +89,6 @@ public class DensoSp1Module extends ReactContextBaseJavaModule implements Lifecy
 		}
 	}
 
-	@Override
-	public String getName() {
-		return "DensoSp1";
-	}
-
-	@Override
-	public void onHostResume() {
-		if (scannerThread != null) {
-			scannerThread.onHostResume();
-		}
-	}
-
-	@Override
-	public void onHostPause() {
-		if (scannerThread != null) {
-			scannerThread.onHostPause();
-		}
-	}
-
-	@Override
-	public void onHostDestroy() {
-		if (scannerThread != null) {
-			scannerThread.onHostDestroy();
-		}
-	}
-
 	@ReactMethod
 	public void DisconnectDevice(Promise promise) {
 		try {
@@ -111,6 +112,113 @@ public class DensoSp1Module extends ReactContextBaseJavaModule implements Lifecy
 		} catch (Exception err) {
 			promise.reject(err);
 		}
+	}
 
+	@ReactMethod
+	public void Connect(Promise promise) {
+		try {
+			if (scannerThread != null) {
+				scannerThread.Connect();
+				promise.resolve(true);
+			}
+		} catch (Exception err) {
+			promise.reject(err);
+		}
+	}
+
+	@ReactMethod
+	public void GetDeviceList(Promise promise) {
+		try {
+			if (scannerThread != null) {
+				promise.resolve(scannerThread.GetDeviceList());
+			}
+		} catch (Exception err) {
+			promise.reject(err);
+		}
+	}
+
+	@ReactMethod
+	public void GetConnectedReader(Promise promise) {
+		try {
+			if (scannerThread != null) {
+				promise.resolve(scannerThread.GetConnectedReader());
+			}
+		} catch (Exception err) {
+			promise.reject(err);
+		}
+
+	}
+
+	@ReactMethod
+	public void SaveSelectedScanner(String name, Promise promise) {
+		try {
+			if (scannerThread != null) {
+				scannerThread.SaveSelectedScanner(name);
+				promise.resolve(true);
+			}
+		} catch (Exception err) {
+			promise.reject(err);
+		}
+
+	}
+
+	@ReactMethod
+	public void CleanCacheTags(Promise promise) {
+		try {
+			if (scannerThread != null) {
+				scannerThread.CleanCacheTags();
+				promise.resolve(true);
+			}
+		} catch (Exception err) {
+			promise.reject(err);
+		}
+	}
+
+	@ReactMethod
+	public void SaveCurrentRoute(String routeName, Promise promise) {
+		try {
+			if (scannerThread != null) {
+				scannerThread.SaveCurrentRoute(routeName);
+				promise.resolve(true);
+			}
+		} catch (Exception err) {
+			promise.reject(err);
+		}
+	}
+
+	@ReactMethod
+	public void SetPowerLevel(int level, Promise promise) {
+		try {
+			if (scannerThread != null) {
+				scannerThread.SetPowerLevel(level);
+				promise.resolve(true);
+			}
+		} catch (Exception err) {
+			promise.reject(err);
+		}
+	}
+
+	@ReactMethod
+	public void ReadBarcode(boolean isEnable, Promise promise) {
+		try {
+			if (scannerThread != null) {
+				scannerThread.ReadBarcode(isEnable);
+				promise.resolve(true);
+			}
+		} catch (Exception err) {
+			promise.reject(err);
+		}
+	}
+
+	@ReactMethod
+	public void SaveTagID(String tagID, Promise promise) {
+		try {
+			if (scannerThread != null) {
+				scannerThread.SaveTagID(tagID);
+				promise.resolve(true);
+			}
+		} catch (Exception err) {
+			promise.reject(err);
+		}
 	}
 }
