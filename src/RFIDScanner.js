@@ -128,6 +128,9 @@ class RFIDScanner {
 	ReadBarcode = (isEnalbe: Boolean) => {
 		return rfidScannerManager.ReadBarcode(isEnalbe);
 	}
+	ProgramTag = (oldTag: String, newTag: String) => {
+		return rfidScannerManager.ProgramTag(oldTag, newTag);
+	}
 	SaveTagID =(tag: String) => {
 		return rfidScannerManager.SaveTagID(tag);
 	}

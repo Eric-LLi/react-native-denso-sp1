@@ -211,6 +211,18 @@ public class DensoSp1Module extends ReactContextBaseJavaModule implements Lifecy
 	}
 
 	@ReactMethod
+	public void ProgramTag(String oldTag, String newTag, Promise promise) {
+		try {
+			if (scannerThread != null) {
+				scannerThread.ProgramTag(oldTag, newTag);
+				promise.resolve(true);
+			}
+		} catch (Exception err) {
+			promise.reject(err);
+		}
+	}
+
+	@ReactMethod
 	public void SaveTagID(String tagID, Promise promise) {
 		try {
 			if (scannerThread != null) {

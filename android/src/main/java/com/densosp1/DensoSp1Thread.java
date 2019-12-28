@@ -238,8 +238,8 @@ public abstract class DensoSp1Thread extends Thread {
 	void DisconnectDevice() throws Exception {
 		if (commScanner != null) {
 			//Denso SP1
-			commScanner.close();
 			commScanner.removeStatusListener(commScannerStatusListener);
+			commScanner.close();
 			commScanner = null;
 			commScannerStatusListener = null;
 			commScannerAcceptStatusListener = null;
@@ -321,6 +321,42 @@ public abstract class DensoSp1Thread extends Thread {
 		}
 	}
 
+	private void InitProgramTag() throws Exception {
+		if (isConnected) {
+			SetTrigger(RFIDScannerSettings.Scan.TriggerMode.AUTO_OFF);
+		}
+	}
+
+	void ProgramTag(String oldTag, String newTag) throws Exception {
+		if (isConnected) {
+			try {
+				byte[] uii = oldTag.getBytes();
+				byte[] data = newTag.getBytes();
+				byte[] pwd = "".getBytes();
+				short length = (short) oldTag.length();
+				short offset = (short) 2;
+				int timeout = 5000;
+
+				commScanner.getRFIDScanner().writeOneTag(RFIDScannerSettings.RFIDBank.UII, offset,
+						length, pwd, data, uii, timeout);
+				dispatchEvent(Dispatch_Event.writeTag, "success");
+			} catch (RFIDException rfidErr) {
+				String msg = String.format("Error code: %s \nMessage: %s",
+						rfidErr.getErrorCode(), rfidErr.getLocalizedMessage());
+				dispatchEvent(Dispatch_Event.writeTag, rfidErr.getLocalizedMessage());
+			} catch (Exception err) {
+				String msg = err.getMessage();
+				dispatchEvent(Dispatch_Event.writeTag, msg);
+			} finally {
+				//Reopen reading tag and clean cache tags
+				setEnable(true);
+				CleanCacheTags();
+			}
+		} else {
+			throw new Exception("Reader is not connected");
+		}
+	}
+
 	private void setEnable(boolean isEnable) throws Exception {
 		if (isConnected) {
 			if (isEnable) {
@@ -389,17 +425,30 @@ public abstract class DensoSp1Thread extends Thread {
 	}
 
 	void SaveCurrentRoute(String routeName) throws Exception {
-		currentRoute = routeName;
-		if (currentRoute != null) {
-			if (isLocateMode && !currentRoute.equalsIgnoreCase("locateTag")) {
+		if (routeName != null) {
+			if (isLocateMode && !routeName.equalsIgnoreCase("locateTag")) {
 				isLocateMode = false;
-			} else if (currentRoute.equalsIgnoreCase("locateTag")) {
+			} else if (routeName.equalsIgnoreCase("locateTag")) {
 				isLocateMode = true;
+			} else if (routeName.equalsIgnoreCase("tagit")) {
+				InitProgramTag();
 			}
 		} else {
+//			if (!isOpenedRFID) setEnable(true);
 			if (isOpenedBarcode) setEnableBarcode(false);
 			if (isOpenedRFID) setEnable(false);
 		}
+
+		if (routeName == null && currentRoute.equalsIgnoreCase("tagit")) {
+			SetTrigger(RFIDScannerSettings.Scan.TriggerMode.MOMENTARY);
+		}
+		currentRoute = routeName;
+	}
+
+	private void SetTrigger(RFIDScannerSettings.Scan.TriggerMode mode) throws RFIDException {
+		RFIDScannerSettings rfidSettings = commScanner.getRFIDScanner().getSettings();
+		rfidSettings.scan.triggerMode = mode;
+		commScanner.getRFIDScanner().setSettings(rfidSettings);
 	}
 
 	private void SetBuzzer(boolean isEnable) throws Exception {
