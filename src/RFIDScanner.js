@@ -23,6 +23,7 @@ class RFIDScanner {
 			this.eventEmitter.addListener(RFIDScannerEvent.WRITETAG, this.handleWriteTagEvent);
 			this.eventEmitter.addListener(RFIDScannerEvent.triggerAction, this.handleTriggerActionEvent);
 			this.eventEmitter.addListener(RFIDScannerEvent.HANDLE_ERROR, this.handleErrorEvent);
+			this.eventEmitter.addListener(RFIDScannerEvent.LOCATE_TAG, this.handleLocateTagEvent);
 		}
 	};
 	RemoveAllListener = () => {
@@ -40,6 +41,7 @@ class RFIDScanner {
 				this.handleTriggerActionEvent
 			);
 			this.eventEmitter.removeListener(RFIDScannerEvent.HANDLE_ERROR, this.handleErrorEvent);
+			this.eventEmitter.removeListener(RFIDScannerEvent.LOCATE_TAG, this.handleLocateTagEvent);
 		}
 	};
 	handleErrorEvent = (event) => {
@@ -75,6 +77,11 @@ class RFIDScanner {
 	handleTriggerActionEvent = (event) => {
 		if (this.onCallbacks.hasOwnProperty(RFIDScannerEvent.triggerAction)) {
 			this.onCallbacks[RFIDScannerEvent.triggerAction](event);
+		}
+	}
+	handleLocateTagEvent = (event) => {
+		if (this.onCallbacks.hasOwnProperty(RFIDScannerEvent.LOCATE_TAG)) {
+			this.onCallbacks[RFIDScannerEvent.LOCATE_TAG](event);
 		}
 	}
 	InitialThread = () => {

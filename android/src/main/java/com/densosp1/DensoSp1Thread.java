@@ -4,8 +4,7 @@ import android.media.MediaPlayer;
 import android.util.Log;
 
 import com.densowave.scannersdk.Barcode.BarcodeDataReceivedEvent;
-import com.densowave.scannersdk.Barcode.BarcodeException;
-import com.densowave.scannersdk.Common.CommException;
+import com.densowave.scannersdk.Common.CommKeyStatusChangedEvent;
 import com.densowave.scannersdk.Common.CommManager;
 import com.densowave.scannersdk.Common.CommScanner;
 import com.densowave.scannersdk.Common.CommStatusChangedEvent;
@@ -13,6 +12,7 @@ import com.densowave.scannersdk.Common.CommStatusChangedEvent;
 import com.densowave.scannersdk.Listener.BarcodeDataDelegate;
 import com.densowave.scannersdk.Listener.RFIDDataDelegate;
 import com.densowave.scannersdk.Listener.ScannerAcceptStatusListener;
+import com.densowave.scannersdk.Listener.ScannerKeyStatusListener;
 import com.densowave.scannersdk.Listener.ScannerStatusListener;
 
 import com.densowave.scannersdk.Dto.CommScannerParams;
@@ -34,7 +34,6 @@ import com.facebook.react.bridge.WritableArray;
 import com.facebook.react.bridge.WritableMap;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 class Dispatch_Event {
@@ -56,10 +55,13 @@ public abstract class DensoSp1Thread extends Thread {
 	private static CommScanner commScanner = null;
 	private static CommScannerStatusListener commScannerStatusListener = null;
 	private static CommScannerAcceptStatusListener commScannerAcceptStatusListener = null;
+	private static ScannerKeyStatusListener commTriggerListener = null;
 	private static boolean isRunningTimeout = false;
 
 	private static boolean isConnected = false;
 	private static String currentRoute = null;
+
+	private static SignalPercentageConverter mPercentageConverter = null;
 
 	// User selected reader
 	private static String selectedReader = null;
@@ -154,6 +156,8 @@ public abstract class DensoSp1Thread extends Thread {
 
 				InitBarcode();
 
+				InitTrigger();
+
 				WritableMap map = Arguments.createMap();
 				map.putBoolean("ConnectionState", true);
 				dispatchEvent(Dispatch_Event.RFIDStatusEvent, map);
@@ -168,17 +172,21 @@ public abstract class DensoSp1Thread extends Thread {
 		@Override
 		public void onRFIDDataReceived(CommScanner commScanner, RFIDDataReceivedEvent rfidDataReceivedEvent) {
 			for (int i = 0; i < rfidDataReceivedEvent.getRFIDData().size(); i++) {
-				StringBuilder data = new StringBuilder();
 				byte[] uii = rfidDataReceivedEvent.getRFIDData().get(i).getUII();
-				for (byte b : uii) {
-					data.append(String.format("%02X ", b).trim());
-				}
-
 				int rssi = rfidDataReceivedEvent.getRFIDData().get(i).getRSSI();
-				String EPC = data.toString();
+
+				String EPC = bytesToHexString(uii);
+
 				Log.e("Tag", EPC);
 				Log.e("RSSI", rssi + "");
-				if (currentRoute != null && currentRoute.equalsIgnoreCase("tagit")) {
+				if (isLocateMode && isPlaying) {
+					int distance = mPercentageConverter.asPercentage(rssi);
+					PlaySound(distance);
+					Log.e("distance", distance + "");
+					WritableMap map = Arguments.createMap();
+					map.putInt("distance", distance);
+					dispatchEvent("locateTag", map);
+				} else if (currentRoute != null && currentRoute.equalsIgnoreCase("tagit")) {
 					if (rssi > 65100) {
 						if (addTagToList(EPC) && cacheTags.size() == 1) {
 							dispatchEvent("TagEvent", EPC);
@@ -200,6 +208,38 @@ public abstract class DensoSp1Thread extends Thread {
 			for (int i = 0; i < barcodeDataReceivedEvent.getBarcodeData().size(); i++) {
 				String barcode = new String(barcodeDataReceivedEvent.getBarcodeData().get(i).getData());
 				dispatchEvent(Dispatch_Event.Barcode, barcode);
+			}
+		}
+	}
+
+	//Reader trigger delegate
+	class CommTriggerListener implements ScannerKeyStatusListener {
+		@Override
+		public void onScannerKeyStatusChanged(CommScanner commScanner, CommKeyStatusChangedEvent commKeyStatusChangedEvent) {
+			if (currentRoute != null) {
+				if (commKeyStatusChangedEvent.getKeyStatus().toString().equalsIgnoreCase("press")) {
+					if (isLocateMode) {
+						isPlaying = true;
+					} else if (currentRoute.equalsIgnoreCase("lookup") ||
+							currentRoute.equalsIgnoreCase("locateTag")) {
+						WritableMap map = Arguments.createMap();
+						map.putString("RFIDStatusEvent", "inventoryStart");
+						dispatchEvent("triggerAction", map);
+					}
+				} else if (commKeyStatusChangedEvent.getKeyStatus().toString().equalsIgnoreCase(
+						"release")) {
+					if (isLocateMode) {
+						isPlaying = false;
+						soundRange = -1;
+						soundThread = null;
+						WritableMap map = Arguments.createMap();
+						map.putInt("distance", 0);
+						dispatchEvent("locateTag", map);
+					} else if (currentRoute.equalsIgnoreCase("tagit") ||
+							currentRoute.equalsIgnoreCase("lookup")) {
+						CleanCacheTags();
+					}
+				}
 			}
 		}
 	}
@@ -239,14 +279,18 @@ public abstract class DensoSp1Thread extends Thread {
 		if (commScanner != null) {
 			//Denso SP1
 			commScanner.removeStatusListener(commScannerStatusListener);
+			commScanner.removeKeyStatusListener(commTriggerListener);
 			commScanner.close();
 			commScanner = null;
 			commScannerStatusListener = null;
 			commScannerAcceptStatusListener = null;
+			commTriggerListener = null;
 			isRunningTimeout = false;
 
 			isConnected = false;
 			currentRoute = null;
+
+			mPercentageConverter = null;
 
 			// User selected reader
 			selectedReader = null;
@@ -280,6 +324,9 @@ public abstract class DensoSp1Thread extends Thread {
 		commScannerAcceptStatusListener = new CommScannerAcceptStatusListener();
 		commScannerDataDelegate = new CommScannerDataDelegate();
 		commBarcodeDelegate = new CommBarcodeDelegate();
+		commTriggerListener = new CommTriggerListener();
+
+		mPercentageConverter = new SignalPercentageConverter();
 
 		CommManager.addAcceptStatusListener(commScannerAcceptStatusListener);
 
@@ -312,33 +359,73 @@ public abstract class DensoSp1Thread extends Thread {
 	private void InitInventory() throws Exception {
 		if (isConnected) {
 			commScanner.getRFIDScanner().setDataDelegate(commScannerDataDelegate);
+		} else {
+			throw new Exception("Reader is not connected");
 		}
 	}
 
 	private void InitBarcode() throws Exception {
 		if (isConnected) {
 			commScanner.getBarcodeScanner().setDataDelegate(commBarcodeDelegate);
+		} else {
+			throw new Exception("Reader is not connected");
+		}
+	}
+
+	private void InitTrigger() throws Exception {
+		if (isConnected) {
+			commScanner.addKeyStatusListener(commTriggerListener);
+		} else {
+			throw new Exception("Reader is not connected");
 		}
 	}
 
 	private void InitProgramTag() throws Exception {
 		if (isConnected) {
 			SetTrigger(RFIDScannerSettings.Scan.TriggerMode.AUTO_OFF);
+		} else {
+			throw new Exception("Reader is not connected");
+		}
+	}
+
+	private void InitLocateTag() throws Exception {
+		if (isConnected) {
+			if (isOpenedRFID) SetEnable(false);
+			if (isOpenedBarcode) SetEnableBarcode(false);
+
+			SetTrigger(RFIDScannerSettings.Scan.TriggerMode.MOMENTARY);
+			byte[] pass = stringToByte("00000000");
+			byte[] uii = hexStringToBytes(tagID);
+			short addr = 0;
+			short length = (short) uii.length;
+
+			try {
+				commScanner.getRFIDScanner().setDataDelegate(commScannerDataDelegate);
+				commScanner.getRFIDScanner().openRead(RFIDScannerSettings.RFIDBank.UII, addr,
+						length, pass, uii);
+			} catch (RFIDException rfidErr) {
+				throw new Exception(rfidErr.getLocalizedMessage());
+			}
+		} else {
+			throw new Exception("Reader is not connected");
 		}
 	}
 
 	void ProgramTag(String oldTag, String newTag) throws Exception {
 		if (isConnected) {
-			try {
-				byte[] uii = oldTag.getBytes();
-				byte[] data = newTag.getBytes();
-				byte[] pwd = "".getBytes();
-				short length = (short) oldTag.length();
-				short offset = (short) 2;
-				int timeout = 5000;
+			if (isOpenedRFID) SetEnable(false);
+			if (isOpenedBarcode) SetEnableBarcode(false);
 
-				commScanner.getRFIDScanner().writeOneTag(RFIDScannerSettings.RFIDBank.UII, offset,
-						length, pwd, data, uii, timeout);
+			try {
+				byte[] uii = hexStringToBytes(oldTag);
+				byte[] data = hexStringToBytes(newTag);
+				byte[] pass = stringToByte("00000000");
+				short length = (short) uii.length;
+				short addr = 2;
+				int timeout = 30000;
+
+				commScanner.getRFIDScanner().writeOneTag(RFIDScannerSettings.RFIDBank.UII, addr,
+						length, pass, data, uii, timeout);
 				dispatchEvent(Dispatch_Event.writeTag, "success");
 			} catch (RFIDException rfidErr) {
 				String msg = String.format("Error code: %s \nMessage: %s",
@@ -348,16 +435,15 @@ public abstract class DensoSp1Thread extends Thread {
 				String msg = err.getMessage();
 				dispatchEvent(Dispatch_Event.writeTag, msg);
 			} finally {
-				//Reopen reading tag and clean cache tags
-				setEnable(true);
-				CleanCacheTags();
+				//Reopen reading tag
+				SetEnable(true);
 			}
 		} else {
 			throw new Exception("Reader is not connected");
 		}
 	}
 
-	private void setEnable(boolean isEnable) throws Exception {
+	private void SetEnable(boolean isEnable) throws Exception {
 		if (isConnected) {
 			if (isEnable) {
 				isOpenedRFID = true;
@@ -373,7 +459,7 @@ public abstract class DensoSp1Thread extends Thread {
 		}
 	}
 
-	private void setEnableBarcode(boolean isEnable) throws Exception {
+	private void SetEnableBarcode(boolean isEnable) throws Exception {
 		if (isConnected) {
 			if (isEnable) {
 				isOpenedBarcode = true;
@@ -392,11 +478,11 @@ public abstract class DensoSp1Thread extends Thread {
 	void ReadBarcode(boolean isEnable) throws Exception {
 		isReadBarcode = isEnable;
 		if (isReadBarcode) {
-			if (isOpenedRFID) setEnable(false);
-			setEnableBarcode(true);
+			if (isOpenedRFID) SetEnable(false);
+			SetEnableBarcode(true);
 		} else {
-			if (isOpenedBarcode) setEnableBarcode(false);
-			setEnable(true);
+			if (isOpenedBarcode) SetEnableBarcode(false);
+			SetEnable(true);
 		}
 	}
 
@@ -430,13 +516,13 @@ public abstract class DensoSp1Thread extends Thread {
 				isLocateMode = false;
 			} else if (routeName.equalsIgnoreCase("locateTag")) {
 				isLocateMode = true;
+				InitLocateTag();
 			} else if (routeName.equalsIgnoreCase("tagit")) {
 				InitProgramTag();
 			}
 		} else {
-//			if (!isOpenedRFID) setEnable(true);
-			if (isOpenedBarcode) setEnableBarcode(false);
-			if (isOpenedRFID) setEnable(false);
+			if (isOpenedBarcode) SetEnableBarcode(false);
+			if (isOpenedRFID) SetEnable(false);
 		}
 
 		if (routeName == null && currentRoute.equalsIgnoreCase("tagit")) {
@@ -445,10 +531,14 @@ public abstract class DensoSp1Thread extends Thread {
 		currentRoute = routeName;
 	}
 
-	private void SetTrigger(RFIDScannerSettings.Scan.TriggerMode mode) throws RFIDException {
-		RFIDScannerSettings rfidSettings = commScanner.getRFIDScanner().getSettings();
-		rfidSettings.scan.triggerMode = mode;
-		commScanner.getRFIDScanner().setSettings(rfidSettings);
+	private void SetTrigger(RFIDScannerSettings.Scan.TriggerMode mode) throws Exception {
+		if (isConnected) {
+			RFIDScannerSettings rfidSettings = commScanner.getRFIDScanner().getSettings();
+			rfidSettings.scan.triggerMode = mode;
+			commScanner.getRFIDScanner().setSettings(rfidSettings);
+		} else {
+			throw new Exception("Reader is not connected");
+		}
 	}
 
 	private void SetBuzzer(boolean isEnable) throws Exception {
@@ -458,24 +548,45 @@ public abstract class DensoSp1Thread extends Thread {
 
 			commScanner.setParams(params);
 			commScanner.saveParams();
+		} else {
+			throw new Exception("Reader is not connected");
 		}
 	}
 
-	private void PowerSaveMode(boolean isEnable) throws RFIDException {
+	private void PowerSaveMode(boolean isEnable) throws Exception {
 		if (isConnected) {
 			RFIDScannerSettings rfidSettings = commScanner.getRFIDScanner().getSettings();
 			rfidSettings.scan.powerSave = isEnable;
 
 			commScanner.getRFIDScanner().setSettings(rfidSettings);
+		} else {
+			throw new Exception("Reader is not connected");
 		}
 	}
 
-	void SetPowerLevel(int level) throws RFIDException {
+	private void SetPolarization(Polarization mode) throws Exception {
 		if (isConnected) {
+			RFIDScannerSettings rfidScannerSettings = commScanner.getRFIDScanner().getSettings();
+			rfidScannerSettings.scan.polarization = mode;
+
+			commScanner.getRFIDScanner().setSettings(rfidScannerSettings);
+		} else {
+			throw new Exception("Reader is not connected");
+		}
+	}
+
+	void SetPowerLevel(int level) throws Exception {
+		if (isConnected) {
+			//For reader is able to change antenna power, reader needs to be disabled.
+			if (isOpenedRFID) SetEnable(false);
+			if (isOpenedBarcode) SetEnableBarcode(false);
+
 			RFIDScannerSettings rfidSettings = commScanner.getRFIDScanner().getSettings();
 			rfidSettings.scan.powerLevelRead = level;
 
 			commScanner.getRFIDScanner().setSettings(rfidSettings);
+		} else {
+			throw new Exception("Reader is not connected");
 		}
 	}
 
@@ -500,6 +611,8 @@ public abstract class DensoSp1Thread extends Thread {
 			SetEnable1dCodes(barcodeSettings, true);
 			SetEnable2dCodes(barcodeSettings, true);
 			commScanner.getBarcodeScanner().setSettings(barcodeSettings);
+		} else {
+			throw new Exception("Reader is not connected");
 		}
 	}
 
@@ -599,5 +712,44 @@ public abstract class DensoSp1Thread extends Thread {
 			}
 		}
 		return false;
+	}
+
+	private byte[] stringToByte(String hex) {
+		byte[] bytes = new byte[hex.length() / 2];
+		for (int index = 0; index < bytes.length; index++) {
+			bytes[index] = (byte) Integer.parseInt(hex.substring(index * 2, (index + 1) * 2), 16);
+		}
+		return bytes;
+	}
+
+	private static byte[] hexStringToBytes(String hexString) {
+		// Element 0 in case of null character
+		if (hexString.length() == 0) {
+			return new byte[0];
+		}
+
+		// Cut out hexadecimal character string in byte unit and store it in the list
+		// 1 byte is equivalent to 2 hexadecimal characters, so cut out 2 characters at a time
+		// In order to cut out 2 characters at a time irrespective of the length of the character string, add 0 to the beginning if the character string is odd length
+		String workHexString = hexString.length() % 2 == 0 ? hexString : "0" + hexString;
+		byte[] bytes = new byte[workHexString.length() / 2];
+		for (int i = 0; i < bytes.length; i++) {
+			// If leave Byte.parseByte as it is, overflow will occur when the value becomes larger than 0x80
+			// By parsing it to a larger type then casting it to byte, a value larger than 0x80 can be input as a negative value
+			String hex2Characters = workHexString.substring(i * 2, i * 2 + 2);
+
+			short number = Short.parseShort(String.format("%s", hex2Characters), 16);
+			bytes[i] = (byte) number;
+		}
+		return bytes;
+	}
+
+	private static String bytesToHexString(byte[] bytes) {
+		StringBuilder hexStringBuilder = new StringBuilder();
+		for (byte byteNumber : bytes) {
+			String hex2Characters = String.format("%02X", byteNumber);
+			hexStringBuilder.append(hex2Characters);
+		}
+		return hexStringBuilder.toString();
 	}
 }
