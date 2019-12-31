@@ -525,7 +525,7 @@ public abstract class DensoSp1Thread extends Thread {
 			if (isOpenedRFID) SetEnable(false);
 		}
 
-		if (routeName == null && currentRoute.equalsIgnoreCase("tagit")) {
+		if (routeName == null && currentRoute != null && currentRoute.equalsIgnoreCase("tagit")) {
 			SetTrigger(RFIDScannerSettings.Scan.TriggerMode.MOMENTARY);
 		}
 		currentRoute = routeName;
