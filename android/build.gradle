@@ -63,7 +63,8 @@ dependencies {
     // https://github.com/facebook/react-native/blob/0.61-stable/template/android/app/build.gradle#L192
     //noinspection GradleDynamicVersion
     implementation 'com.facebook.react:react-native:+'
-    implementation project(path: ':DENSOScannerSDK')  // From node_modules
+    implementation(name: 'DENSOScannerSDK', ext: 'aar')
+    // implementation project(path: ':DENSOScannerSDK')  // From node_modules
 }
 
 def configureReactNativePom(def pom) {
