@@ -382,7 +382,7 @@ public abstract class DensoSp1Thread extends Thread {
 
 	private void InitProgramTag() throws Exception {
 		if (isConnected) {
-			SetTrigger(RFIDScannerSettings.Scan.TriggerMode.AUTO_OFF);
+			SetTrigger(RFIDScannerSettings.Scan.TriggerMode.MOMENTARY);
 		} else {
 			throw new Exception("Reader is not connected");
 		}
@@ -415,14 +415,15 @@ public abstract class DensoSp1Thread extends Thread {
 		if (isConnected) {
 			if (isOpenedRFID) SetEnable(false);
 			if (isOpenedBarcode) SetEnableBarcode(false);
+			SetTrigger(RFIDScannerSettings.Scan.TriggerMode.CONTINUOUS2);
 
 			try {
-				byte[] uii = hexStringToBytes(oldTag);
-				byte[] data = hexStringToBytes(newTag);
+				byte[] uii = stringToByte(oldTag);
+				byte[] data = stringToByte(newTag);
 				byte[] pass = stringToByte("00000000");
 				short length = (short) uii.length;
-				short addr = 2;
-				int timeout = 30000;
+				short addr = 4;
+				int timeout = 10000;
 
 				commScanner.getRFIDScanner().writeOneTag(RFIDScannerSettings.RFIDBank.UII, addr,
 						length, pass, data, uii, timeout);
@@ -436,6 +437,7 @@ public abstract class DensoSp1Thread extends Thread {
 				dispatchEvent(Dispatch_Event.writeTag, msg);
 			} finally {
 				//Reopen reading tag
+				SetTrigger(RFIDScannerSettings.Scan.TriggerMode.MOMENTARY);
 				SetEnable(true);
 			}
 		} else {
